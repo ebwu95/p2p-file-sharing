@@ -1,7 +1,7 @@
 import socket
 import threading
 
-class Peer:
+class Node:
     def __init__(self, port):
         self.port = port
         self.server_thread = threading.Thread(target=self.start_server)
