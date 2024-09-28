@@ -28,7 +28,7 @@ class Node:
         # delimiter for separating name and hash
         file_name, original_hash = data.split('|')
         print(f"Receiving file: {file_name}")
-        print(f"DEBUG: Original hash: {original_hash}")
+        #print(f"DEBUG: Original hash: {original_hash}")
 
         chunks = []
         while True:
@@ -36,12 +36,12 @@ class Node:
             data = conn.recv(512)  # 512-byte chunks as defined
             if not data:
                 break
-            print(f"DEBUG: Received chunk: {data}")
+            #print(f"DEBUG: Received chunk: {data}")
             chunks.append(data)
         
         # Reassemble file
         output_path = os.path.join('received_files', file_name)  # Store in a folder
-        reassemble_file(chunks, output_path, original_hash)  # Pass the original hash
+        reassemble_file(chunks, output_path, original_hash)
 
     def send_file(self, ip, port, file_path):
         """Sends a file to a peer."""
