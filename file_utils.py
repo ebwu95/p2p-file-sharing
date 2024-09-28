@@ -1,4 +1,5 @@
 import os
+import hashlib
 
 CHUNK_SIZE = 512  # Size of each chunk
 
@@ -11,11 +12,6 @@ def chunk_file(file):
                 break
             chunks.append(chunk)
     return chunks
-
-def reassemble_file(chunks, output_file):
-    with open(output_file, 'wb') as f:
-        for chunk in chunks:
-            f.write(chunk)
 
 def save_chunks(chunks, output_dir):
     if not os.path.exists(output_dir):
