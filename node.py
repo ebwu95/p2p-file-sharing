@@ -7,7 +7,6 @@ from file_utils import chunk_file, reassemble_file, compute_sha256
 
 CHUNK_SIZE = 512  # Size of each chunk
 
-
 class Node:
     def __init__(self, port):
         self.port = port
@@ -53,7 +52,7 @@ class Node:
                 chunk_index = int.from_bytes(chunk_index_bytes, byteorder='big')
                 chunk_size_bytes = conn.recv(4)
                 chunk_size = int.from_bytes(chunk_size_bytes, byteorder='big')
-
+                
                 chunk_data = b''
                 while len(chunk_data) < chunk_size:
                     packet = conn.recv(min(4096, chunk_size - len(chunk_data)))
@@ -108,13 +107,13 @@ class Node:
             for i, chunk in enumerate(chunks):
                 chunk_index_bytes = i.to_bytes(4, byteorder='big')
                 chunk_size_bytes = len(chunk).to_bytes(4, byteorder='big')
-
+                
                 client_socket.sendall(chunk_index_bytes)
                 client_socket.sendall(chunk_size_bytes)
                 client_socket.sendall(chunk)
-
+                
                 print(f"Sent chunk {i} (size: {len(chunk)} bytes)")
-
+                
                 ack = client_socket.recv(1024).decode()
                 if ack != "ACK":
                     print(f"Chunk {i} not acknowledged by peer: {ack}")
@@ -144,7 +143,6 @@ class Node:
             else:
                 print("Waiting for incoming connections...")
                 time.sleep(1)  # Add a small delay to prevent busy-waiting
-
 
 # Ensure the program runs by adding the proper entry point below.
 if __name__ == "__main__":
