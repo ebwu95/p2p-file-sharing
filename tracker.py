@@ -27,7 +27,7 @@ class Tracker:
         return self.peers.get(peer_id, None)
 
     def get_rare_pieces(self):
-        rarest_pieces = sorted(chunk_freq.items(), key=lambda x: x[1])
+        rarest_pieces = sorted(self.chunk_freq.items(), key=lambda x: x[1])
         return [piece for piece, _ in rarest_pieces]
 
 # Initialize the tracker
@@ -71,4 +71,4 @@ def get_rare_pieces():
     return jsonify(rare_pieces), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=8080)
