@@ -30,37 +30,31 @@ class Node:
         """Handles messages from incoming connections."""
         try:
             # Receive file name and hash
-            data = conn.recv(1024).decode()
-            print("THIS S THE RECEIVED DATA: ",data)
-            file_name, original_hash = data.split('|')
-
-            # Next, Receive the bitfield
-            bitfield_data = conn.recv(1024)
-            peer_bitfield = list(bitfield_data)
-
-            print("Received bitfield from peer:", peer_bitfield)
-            print("End of bitfield")
-
-            # Initialize the local bitfield to match the peer's bitfield
-            if len(self.bitfield)==0 :   
-                self.bitfield = [0] * len(peer_bitfield)
-
-            # Request missing chunks from the peer
-            self.request_missing_chunks(peer_bitfield, conn)
-
-            # Now, Receive the chunks from the request
-
-            while True:
-                # Receiving requests from the peer
-                data = conn.recv(1024)
-                if not data:
-                    break  # Exit if no data is received
-                            # Check if the request is for a chunk
+            while (True):
+                data = conn.recv(1024).decode()
                 if data.startswith("request_chunk:"):
                     chunk_index = int(data.split(":")[1])
                     print(f"Peer requested chunk {chunk_index}")
                     self.handle_chunk_request(conn, chunk_index)
+                else:
+                    print("THIS S THE RECEIVED DATA: ",data)
+                    file_name, original_hash = data.split('|')
 
+                    # Next, Receive the bitfield
+                    bitfield_data = conn.recv(1024)
+                    peer_bitfield = list(bitfield_data)
+
+                    print("Received bitfield from peer:", peer_bitfield)
+                    print("End of bitfield")
+
+                    # Initialize the local bitfield to match the peer's bitfield
+                    if len(self.bitfield)==0 :   
+                        self.bitfield = [0] * len(peer_bitfield)
+
+                    # Request missing chunks from the peer
+                    self.request_missing_chunks(peer_bitfield, conn)
+
+            # Now, Receive the chunks from the request
 
 
             # chunks = []
