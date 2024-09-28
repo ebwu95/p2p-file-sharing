@@ -108,10 +108,6 @@ def update_chunk():
     tracker.update_chunk(file_id, get_node_id(ip, port), chunk_id)
     return jsonify({"message": "Updated peer chunk data", "chunk_data": tracker.get_torrent_info(torrent)}), 200
 
-@app.route('/peers', methods=['GET'])
-def get_peers():
-    return jsonify(tracker.get_peers()), 200
-
 @app.route('/request_chunk', methods=['GET'])
 def request_chunk():
     data = request.json
