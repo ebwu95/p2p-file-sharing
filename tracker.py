@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from collections import defaultdict
+import random
 
 app = Flask(__name__)
 
@@ -39,7 +40,7 @@ class Tracker:
                 self.chunk_freq[file_id][i] += chunk
         self.torrents[file_id] = chunk_data
 
-    def update_chunk(self, node_id, file_id, chunk_id):    
+    def update_chunk(self, file_id, node_id, chunk_id):
         try:
             self.torrents[file_id][node_id][chunk_id] = 1
             self.chunk_freq[file_id][chunk_id] += 1
@@ -54,18 +55,16 @@ class Tracker:
     def get_peers(self):
         return self.nodes
     
-    def get_rarest_holder(self, node_id, file_id):
-        request_ip = -1
-        request_port = -1
+    def request_chunk(self, node_id, file_id):
+        request_id = ""
         rarest_freq = float('inf')
         rarest_chunk = -1
-        for chunk_id, chunk in enumerate(chunk_freq[file_id]):
-            if (chunk_freq[file_id][chunk_id] < rarest_freq and torrents[file_id][node_id][chunk_id] == 0):
-                rarest_freq = chunk_freq[file_id][chunk_id] 
-                request_ip, request_port = random.choice(chunk_holders[file_id][chunk_id])
+        for chunk_id, freq in enumerate(self.chunk_freq[file_id]):
+            if (freq < rarest_freq and self.torrents[file_id][node_id][chunk_id] == 0):
+                rarest_freq = freq
+                request_id = random.choice(self.chunk_holders[file_id][chunk_id])
                 rarest_chunk = chunk_id
-        rarest_pieces = sorted(self.chunk_freq[file_id].items(), key=lambda x: x[1])
-        return (rarest_chunk, get_node_id(request_ip, request_port))
+        return (rarest_chunk, request_id)
 
 # Initialize the tracker
 tracker = Tracker()
@@ -105,8 +104,10 @@ def update_chunk():
     file_id = data.get('file_id')
     port = data.get('port')
     chunk_id = data.get('chunk_id')
-    tracker.update_chunk(file_id, get_node_id(ip, port), chunk_id)
-    return jsonify({"message": "Updated peer chunk data", "chunk_data": tracker.get_torrent_info(torrent)}), 200
+    if tracker.update_chunk(file_id, get_node_id(ip, port), chunk_id):
+        return jsonify({"message": "Updated peer chunk data", "chunk_data": tracker.get_torrent_info(file_id)}), 200
+    else:
+        return jsonify({"error": "You need to call /initialize_chunks"}), 400
 
 @app.route('/request_chunk', methods=['GET'])
 def request_chunk():
@@ -114,8 +115,8 @@ def request_chunk():
     ip = request.remote_addr
     file_id = data.get('file_id')
     port = data.get('port')
-    chunk_id, request_ip, request_port = tracker.request_chunk(ip, port, file_id)
-    return jsonify({"chunk_id": chunk_id, "ip": request_ip, "port":request_port}), 200
+    chunk_id, request_id = tracker.request_chunk(get_node_id(ip, port), file_id)
+    return jsonify({"chunk_id": chunk_id, "node": request_id}), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=6969)
+    app.run(host='0.0.0.0', port=8080)
