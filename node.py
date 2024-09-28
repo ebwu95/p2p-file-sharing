@@ -1,22 +1,17 @@
 import socket
 import threading
 import os
-import random
-from file_utils import chunk_file, reassemble_file, save_chunks, compute_sha256, check_chunks, compute_chunk_hash
+import traceback
+import time
+from file_utils import chunk_file, reassemble_file, compute_sha256
 
-def corrupt_chunks(chunks, num_corrupt):
-    """Corrupts a specified number of chunks by modifying their content."""
-    corrupt_indices = random.sample(range(len(chunks)), num_corrupt)
-    for index in corrupt_indices:
-        chunk = bytearray(chunks[index])
-        # Modify the first byte of the chunk to simulate corruption
-        chunk[0] = (chunk[0] + 1) % 256
-        chunks[index] = bytes(chunk)
-    return corrupt_indices
+CHUNK_SIZE = 512  # Size of each chunk
 
 class Node:
     def __init__(self, port):
         self.port = port
+        self.chunks = []  # To hold the actual chunks
+        self.bitfield = []  # To track available chunks
         self.server_thread = threading.Thread(target=self.start_server)
         self.server_thread.daemon = True  # Daemonize thread to end with main program
         self.server_thread.start()
@@ -35,73 +30,127 @@ class Node:
 
     def handle_incoming_client(self, conn):
         """Handles messages from incoming connections."""
-        data = conn.recv(1024).decode()
-        # delimiter for separating name and hash
-        file_name, original_hash = data.split('|')
-        print(f"Receiving file: {file_name}")
-        #print(f"DEBUG: Original hash: {original_hash}")
+        try:
+            # Receive file name
+            file_name = conn.recv(1024).decode().strip()
+            print(f"Receiving file: {file_name}")
 
-        chunks = []
-        while True:
-            # Receive file chunks
-            data = conn.recv(512)  # 512-byte chunks as defined
-            if not data:
-                break
-            #print(f"DEBUG: Received chunk: {data}")
-            chunks.append(data)
-        
-        output_path = os.path.join('received_files', file_name)
-        if not reassemble_file(chunks, output_path, original_hash):
-            original_hashes = [compute_chunk_hash(chunk) for chunk in chunk_file(output_path)]
-            corrupted_chunks = check_chunks(chunks, original_hashes)
-            print(f"Corrupted chunks: {corrupted_chunks}")
-            for i in corrupted_chunks:
-                conn.sendall(f"corrupt|{i}".encode())
-                chunk = conn.recv(512)
-                chunks[i] = chunk
-            reassemble_file(chunks, output_path, original_hash)
+            # Receive the number of chunks
+            num_chunks = int(conn.recv(1024).decode())
+            print(f"Expecting {num_chunks} chunks.")
 
-    def send_file(self, ip, port, file_path):
-        """Sends a file to a peer."""
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((ip, port))
-            file_name = os.path.basename(file_path)
-            original_hash = compute_sha256(file_path)
-            s.sendall(f"{file_name}|{original_hash}".encode())
+            # Initialize the local bitfield
+            self.bitfield = [0] * num_chunks
+            self.chunks = [None] * num_chunks
 
-            chunks = chunk_file(file_path)
-            
-            # The corruption spreads. Your terraria world is now 2% corruption.
-            num_corrupt = 2
-            corrupt_indices = corrupt_chunks(chunks, num_corrupt)
-            print(f"Corrupted chunks for testing: {corrupt_indices}")
+            # Send acknowledgment for setup
+            conn.sendall("READY".encode())
 
-            for chunk in chunks:
-                s.sendall(chunk)
+            # Receive and process chunks
+            for i in range(num_chunks):
+                chunk_index_bytes = conn.recv(4)
+                chunk_index = int.from_bytes(chunk_index_bytes, byteorder='big')
+                chunk_size_bytes = conn.recv(4)
+                chunk_size = int.from_bytes(chunk_size_bytes, byteorder='big')
+                
+                chunk_data = b''
+                while len(chunk_data) < chunk_size:
+                    packet = conn.recv(min(4096, chunk_size - len(chunk_data)))
+                    if not packet:
+                        raise Exception("Connection closed while receiving chunk data")
+                    chunk_data += packet
+
+                print(f"Received chunk {chunk_index} (size: {chunk_size} bytes)")
+                self.chunks[chunk_index] = chunk_data
+                self.bitfield[chunk_index] = 1
+                conn.sendall("ACK".encode())
+
+            # Receive the original hash to verify integrity
+            original_hash = conn.recv(64).decode()
+
+            # Reassemble file
+            output_path = os.path.join('received_files', file_name)
+            reassemble_file(self.chunks, output_path, original_hash)
+            print(f"File {file_name} received and reassembled successfully.")
+
+        except Exception as e:
+            print(f"Error while handling incoming client: {e}")
+            print(traceback.format_exc())
+        finally:
+            conn.close()
+
+    def connect_to_peer(self, ip, port, file):
+        """Connects to another peer to upload a file."""
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            client_socket.connect((ip, port))
+            print(f"Connected to peer {ip}:{port}")
+
+            # Send the file name
+            file_name = os.path.basename(file)
+            client_socket.sendall(file_name.encode())
+
+            # Chunk the file and store chunks
+            chunks = chunk_file(file)
+            self.chunks = chunks
+            num_chunks = len(chunks)
+
+            # Send the number of chunks
+            client_socket.sendall(str(num_chunks).encode())
+
+            # Wait for receiver to be ready
+            ready_signal = client_socket.recv(1024).decode()
+            if ready_signal != "READY":
+                raise Exception("Receiver not ready")
+
+            # Send chunks
+            for i, chunk in enumerate(chunks):
+                chunk_index_bytes = i.to_bytes(4, byteorder='big')
+                chunk_size_bytes = len(chunk).to_bytes(4, byteorder='big')
+                
+                client_socket.sendall(chunk_index_bytes)
+                client_socket.sendall(chunk_size_bytes)
+                client_socket.sendall(chunk)
+                
+                print(f"Sent chunk {i} (size: {len(chunk)} bytes)")
+                
+                ack = client_socket.recv(1024).decode()
+                if ack != "ACK":
+                    print(f"Chunk {i} not acknowledged by peer: {ack}")
+                    breaks
+
+            # Send the original file hash
+            original_hash = compute_sha256(file)
+            client_socket.sendall(original_hash.encode())
+
             print(f"File {file_name} sent successfully.")
 
-            while True:
-                data = s.recv(1024).decode()
-                if not data:
-                    break
-                if data.startswith("corrupt"):
-                    _, chunk_index = data.split('|')
-                    chunk_index = int(chunk_index)
-                    chunk = chunks[chunk_index]
-                    s.sendall(chunk)
+        except Exception as e:
+            print(f"An error occurred while connecting to peer: {e}")
+            print(traceback.format_exc())
+        finally:
+            client_socket.close()
 
+    def run(self):
+        """Continues allowing peer to initiate outgoing connections."""
+        while True:
+            action = input("Do you want to upload a file to another peer? (y/n): ").lower()
+            if action == 'y':
+                target_ip = input("Enter the IP address of the peer to connect to: ")
+                target_port = int(input("Enter the port of the peer to connect to: "))
+                file_path = input("Enter the file path to upload: ")
+                self.connect_to_peer(target_ip, target_port, file_path)
+            else:
+                print("Waiting for incoming connections...")
+                time.sleep(1)  # Add a small delay to prevent busy-waiting
+
+# Ensure the program runs by adding the proper entry point below.
 if __name__ == "__main__":
     peer_port = int(input("Enter the port for this peer: "))
-    
+
     # Ensure 'received_files' directory exists to store downloaded files
     if not os.path.exists('received_files'):
         os.makedirs('received_files')
-    
+
     peer_instance = Node(peer_port)
-    
-    upload = input("Do you want to upload a file to another peer? (y/n): ")
-    if upload.lower() == 'y':
-        peer_ip = input("Enter the IP address of the peer to connect to: ")
-        peer_port = int(input("Enter the port of the peer to connect to: "))
-        file_path = input("Enter the file path to upload: ")
-        peer_instance.send_file(peer_ip, peer_port, file_path)
+    peer_instance.run()
