@@ -28,6 +28,11 @@ def compute_sha256(file_path):
             sha256.update(chunk)
     return sha256.hexdigest()
 
+def compute_chunk_hash(chunk):
+    sha256 = hashlib.sha256()
+    sha256.update(chunk)
+    return sha256.hexdigest()
+
 def reassemble_file(chunks, output_file, original_hash):
     with open(output_file, 'wb') as f:
         for chunk in chunks:
@@ -35,6 +40,16 @@ def reassemble_file(chunks, output_file, original_hash):
     
     reassembled_hash = compute_sha256(output_file)
     if reassembled_hash != original_hash:
-        raise ValueError("Hash status: mismatch\nThe file may be corrupted :(")
+        print("Hash status: mismatch\nThe file may be corrupted :(")
+        return False
     else:
         print("Hash status: match\nMoto moto says good job")
+        return True
+
+def check_chunks(chunks, original_hashes):
+    corrupted_chunks = []
+    for i, chunk in enumerate(chunks):
+        chunk_hash = compute_chunk_hash(chunk)
+        if chunk_hash != original_hashes[i]:
+            corrupted_chunks.append(i)
+    return corrupted_chunks
