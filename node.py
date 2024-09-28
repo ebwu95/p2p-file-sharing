@@ -117,7 +117,7 @@ class Node:
                 ack = client_socket.recv(1024).decode()
                 if ack != "ACK":
                     print(f"Chunk {i} not acknowledged by peer: {ack}")
-                    break
+                    breaks
 
             # Send the original file hash
             original_hash = compute_sha256(file)
