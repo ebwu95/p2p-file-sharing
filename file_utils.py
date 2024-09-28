@@ -24,14 +24,4 @@ def save_chunks(chunks, output_dir):
         chunk_path = os.path.join(output_dir, f'chunk_{i:04d}')
         with open(chunk_path, 'wb') as f:
             f.write(chunk)
-
-def main():
-    file_path = input("Enter the path of the file to chunk: ")
-    output_dir = input("Enter the directory to save chunks: ")
-    
-    chunks = chunk_file(file_path)
-    save_chunks(chunks, output_dir)
-    print(f"File chunked into {len(chunks)} chunks and saved in {output_dir}")
-
-if __name__ == "__main__":
-    main()
+            
