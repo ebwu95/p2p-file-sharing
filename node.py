@@ -1,7 +1,7 @@
 import socket
 import threading
 import os
-from file_utils import chunk_file, reassemble_file, save_chunks, compute_sha256
+from file_utils import chunk_file, reassemble_file, save_chunks, compute_sha256, check_chunks, compute_chunk_hash
 
 class Node:
     def __init__(self, port):
@@ -39,9 +39,16 @@ class Node:
             #print(f"DEBUG: Received chunk: {data}")
             chunks.append(data)
         
-        # Reassemble file
-        output_path = os.path.join('received_files', file_name)  # Store in a folder
-        reassemble_file(chunks, output_path, original_hash)
+        output_path = os.path.join('received_files', file_name)
+        if not reassemble_file(chunks, output_path, original_hash):
+            original_hashes = [compute_chunk_hash(chunk) for chunk in chunk_file(output_path)]
+            corrupted_chunks = check_chunks(chunks, original_hashes)
+            print(f"Corrupted chunks: {corrupted_chunks}")
+            for i in corrupted_chunks:
+                conn.sendall(f"corrupt|{i}".encode())
+                chunk = conn.recv(512)
+                chunks[i] = chunk
+            reassemble_file(chunks, output_path, original_hash)
 
     def send_file(self, ip, port, file_path):
         """Sends a file to a peer."""
@@ -49,14 +56,22 @@ class Node:
             s.connect((ip, port))
             file_name = os.path.basename(file_path)
             original_hash = compute_sha256(file_path)
-            header = f"{file_name}|{original_hash}"
-            s.sendall(header.encode())
+            s.sendall(f"{file_name}|{original_hash}".encode())
 
             chunks = chunk_file(file_path)
             for chunk in chunks:
-                print(f"DEBUG: Sending chunk: {chunk}")
                 s.sendall(chunk)
             print(f"File {file_name} sent successfully.")
+
+            while True:
+                data = s.recv(1024).decode()
+                if not data:
+                    break
+                if data.startswith("corrupt"):
+                    _, chunk_index = data.split('|')
+                    chunk_index = int(chunk_index)
+                    chunk = chunks[chunk_index]
+                    s.sendall(chunk)
 
 if __name__ == "__main__":
     peer_port = int(input("Enter the port for this peer: "))
