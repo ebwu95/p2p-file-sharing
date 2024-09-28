@@ -1,7 +1,18 @@
 import socket
 import threading
 import os
+import random
 from file_utils import chunk_file, reassemble_file, save_chunks, compute_sha256, check_chunks, compute_chunk_hash
+
+def corrupt_chunks(chunks, num_corrupt):
+    """Corrupts a specified number of chunks by modifying their content."""
+    corrupt_indices = random.sample(range(len(chunks)), num_corrupt)
+    for index in corrupt_indices:
+        chunk = bytearray(chunks[index])
+        # Modify the first byte of the chunk to simulate corruption
+        chunk[0] = (chunk[0] + 1) % 256
+        chunks[index] = bytes(chunk)
+    return corrupt_indices
 
 class Node:
     def __init__(self, port):
@@ -59,6 +70,12 @@ class Node:
             s.sendall(f"{file_name}|{original_hash}".encode())
 
             chunks = chunk_file(file_path)
+            
+            # The corruption spreads. Your terraria world is now 2% corruption.
+            num_corrupt = 2
+            corrupt_indices = corrupt_chunks(chunks, num_corrupt)
+            print(f"Corrupted chunks for testing: {corrupt_indices}")
+
             for chunk in chunks:
                 s.sendall(chunk)
             print(f"File {file_name} sent successfully.")
