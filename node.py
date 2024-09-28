@@ -24,11 +24,11 @@ class Node:
 
     def handle_incoming_client(self, conn):
         """Handles messages from incoming connections."""
-        file_name = conn.recv(1024).decode()  
+        data = conn.recv(1024).decode()
+        # delimiter for separating name and hash
+        file_name, original_hash = data.split('|')
         print(f"Receiving file: {file_name}")
-        
-        original_hash = conn.recv(64).decode()  # Receive the original hash
-        print(f"Original hash: {original_hash}")
+        print(f"DEBUG: Original hash: {original_hash}")
 
         chunks = []
         while True:
@@ -36,6 +36,7 @@ class Node:
             data = conn.recv(512)  # 512-byte chunks as defined
             if not data:
                 break
+            print(f"DEBUG: Received chunk: {data}")
             chunks.append(data)
         
         # Reassemble file
@@ -47,13 +48,13 @@ class Node:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((ip, port))
             file_name = os.path.basename(file_path)
-            s.sendall(file_name.encode())
-
-            original_hash = compute_sha256(file_path)  # Compute the original hash
-            s.sendall(original_hash.encode())  # Send the original hash
+            original_hash = compute_sha256(file_path)
+            header = f"{file_name}|{original_hash}"
+            s.sendall(header.encode())
 
             chunks = chunk_file(file_path)
             for chunk in chunks:
+                print(f"DEBUG: Sending chunk: {chunk}")
                 s.sendall(chunk)
             print(f"File {file_name} sent successfully.")
 
@@ -65,4 +66,10 @@ if __name__ == "__main__":
         os.makedirs('received_files')
     
     peer_instance = Node(peer_port)
-    peer_instance.run()
+    
+    upload = input("Do you want to upload a file to another peer? (y/n): ")
+    if upload.lower() == 'y':
+        peer_ip = input("Enter the IP address of the peer to connect to: ")
+        peer_port = int(input("Enter the port of the peer to connect to: "))
+        file_path = input("Enter the file path to upload: ")
+        peer_instance.send_file(peer_ip, peer_port, file_path)
