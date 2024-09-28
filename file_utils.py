@@ -1,7 +1,7 @@
 import os
 import hashlib
 
-CHUNK_SIZE = 512 #Moto moto
+CHUNK_SIZE = 512  # Size of each chunk
 
 def chunk_file(file):
     chunks = []
@@ -32,7 +32,7 @@ def reassemble_file(chunks, output_file, original_hash):
     with open(output_file, 'wb') as f:
         for chunk in chunks:
             f.write(chunk)
-    
+
     reassembled_hash = compute_sha256(output_file)
     if reassembled_hash != original_hash:
         raise ValueError("Hash status: mismatch\nThe file may be corrupted :(")
