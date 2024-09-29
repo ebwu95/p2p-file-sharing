@@ -104,6 +104,7 @@ class Node:
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             client_socket.connect((ip, port))
+
             print(f"Connected to peer {ip}:{port}")
             self.successful_connections += 1
 
@@ -111,6 +112,9 @@ class Node:
             file_name = os.path.basename(file)
             client_socket.sendall(file_name.encode())
 
+            #sleep cuz skbd30 vulnerability
+            time.sleep(0.2)
+            
             # Chunk the file and store chunks
             chunks = chunk_file(file)
             self.chunks = chunks
