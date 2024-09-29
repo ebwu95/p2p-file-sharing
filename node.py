@@ -3,9 +3,70 @@ import threading
 import os
 import traceback
 import time
+import requests
 from file_utils import chunk_file, reassemble_file, compute_sha256
 
 CHUNK_SIZE = 512  # Size of each chunk
+BASEURL = "http://localhost:8080"
+
+class ChunkSender(threading.Thread):
+    def __init__(self, ip, port, chunks, total_chunks, file_name, original_hash):
+        super().__init__()
+        self.ip = ip
+        self.port = port
+        self.chunks = chunks
+        self.total_chunks = total_chunks
+        self.file_name = file_name
+        self.original_hash = original_hash
+
+    def run(self):
+        """Connects to a peer and sends assigned chunks."""
+        try:
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_socket.connect((self.ip, self.port))
+            print(f"Connected to peer {self.ip}:{self.port}")
+            client_socket.sendall(self.file_name.encode())
+            time.sleep(0.2)
+
+            # Send the number of chunks assigned to this peer
+            num_chunks = len(self.chunks)
+            chunk_info = str(num_chunks) + "/" + str(self.total_chunks)
+            client_socket.sendall(str(chunk_info).encode())
+
+            # Wait for receiver to be ready
+            ready_signal = client_socket.recv(1024).decode()
+            if ready_signal != "READY":
+                raise Exception("Receiver not ready")
+
+            # Send chunks
+            for i, chunk in self.chunks:
+                chunk_index_bytes = i.to_bytes(4, byteorder='big')
+                chunk_size_bytes = len(chunk).to_bytes(4, byteorder='big')
+                
+                client_socket.sendall(chunk_index_bytes)
+                client_socket.sendall(chunk_size_bytes)
+                client_socket.sendall(chunk)
+                
+                print(f"Sent chunk {i} (size: {len(chunk)} bytes)")
+                
+                ack = client_socket.recv(1024).decode()
+                if ack != "ACK":
+                    print(f"Chunk {i} not acknowledged by peer: {ack}")
+                    break
+
+                # self.uploaded_chunks += 1
+                # self.total_uploaded_bytes += len(chunk)
+
+            # Send the original file hash
+            client_socket.sendall(self.original_hash.encode())
+
+            print(f"File {self.file_name} sent successfully.")
+            # self.uploaded_files += 1
+        except Exception as e:
+            print(f"Error sending chunks to {self.ip}:{self.port}: {e}")
+            print(traceback.format_exc())
+        finally:
+            client_socket.close()
 
 class Node:
     def __init__(self, port):
@@ -24,22 +85,29 @@ class Node:
         self.successful_connections = 0
         self.failed_connections = 0
 
+
     def start_server(self):
         """Starts a peer server that listens for incoming connections."""
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_socket.bind(('0.0.0.0', self.port))  # Bind to all network interfaces
-        server_socket.listen(5)  # Listen for up to 5 connections
+        server_socket.bind(('0.0.0.0', self.port))
+        server_socket.listen(5)
+        
+        url = BASEURL + "/register" 
+        data = {"port": self.port}
+
+        try:
+            response = requests.post(url, json=data)
+            response.raise_for_status()
+            print(f"Node registered successfully with port {self.port}")
+        except requests.exceptions.RequestException as e:
+            print(f"Error registering node: {e}")
+
         print(f"Peer listening on port {self.port}...")
 
         while True:
-            try:
-                conn, addr = server_socket.accept()  # Accept new connections
-                print(f"Connected by {addr}")
-                self.successful_connections += 1
-                threading.Thread(target=self.handle_incoming_client, args=(conn,)).start()
-            except Exception:
-                self.failed_connections += 1
-                print(f"Failed to establish connection")
+            conn, addr = server_socket.accept()
+            print(f"Connected by {addr}")
+            threading.Thread(target=self.handle_incoming_client, args=(conn,)).start()
 
     def handle_incoming_client(self, conn):
         """Handles messages from incoming connections."""
@@ -49,12 +117,14 @@ class Node:
             print(f"Receiving file: {file_name}")
 
             # Receive the number of chunks
-            num_chunks = int(conn.recv(1024).decode())
+            num_chunks, total_chunks = conn.recv(1024).decode().split("/")
+            num_chunks = int(num_chunks)
+            total_chunks = int(total_chunks)
             print(f"Expecting {num_chunks} chunks.")
 
             # Initialize the local bitfield
-            self.bitfield = [0] * num_chunks
-            self.chunks = [None] * num_chunks
+            self.bitfield = [0] * total_chunks
+            self.chunks = [None] * total_chunks
 
             # Send acknowledgment for setup
             conn.sendall("READY".encode())
@@ -79,15 +149,14 @@ class Node:
                 conn.sendall("ACK".encode())
 
                 # Update statistics
-                self.downloaded_chunks += 1
-                self.total_downloaded_bytes += chunk_size
+                # self.downloaded_chunks += 1
+                # self.total_downloaded_bytes += chunk_size
 
             # Receive the original hash to verify integrity
             original_hash = conn.recv(64).decode()
 
             # Reassemble file
             output_path = os.path.join('received_files', file_name)
-            reassemble_file(self.chunks, output_path, original_hash)
             print(f"File {file_name} received and reassembled successfully.")
 
             self.downloaded_files += 1
@@ -99,93 +168,80 @@ class Node:
         finally:
             conn.close()
 
-    def connect_to_peer(self, ip, port, file):
-        """Connects to another peer to upload a file."""
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    def upload(self, file):
+        """Connects to multiple peers to upload a file in chunks."""
+        print(f"Starting upload process for file: {file}")
+        url = BASEURL + "/peers" 
+        data = {"port": self.port}
+
         try:
-            client_socket.connect((ip, port))
-            print(f"Connected to peer {ip}:{port}")
-            self.successful_connections += 1
+            response = requests.get(url, json=data)
+            data = response.json()
+            nodes = data["available_peers"]
+            
+            response.raise_for_status()
+            print(f"Node registered successfully with port {self.port}")
+            print(f"Available peers: {nodes}")
+        except requests.exceptions.RequestException as e:
+            print(f"Error registering node: {e}")
+            return
 
-            # Send the file name
-            file_name = os.path.basename(file)
-            client_socket.sendall(file_name.encode())
+        # Chunk the file and store chunks
+        print(f"Chunking file: {file}")
+        chunks = chunk_file(file)
+        self.chunks = chunks
+        num_chunks = len(chunks)
+        print(f"File chunked into {num_chunks} chunks")
 
-            # Chunk the file and store chunks
-            chunks = chunk_file(file)
-            self.chunks = chunks
-            num_chunks = len(chunks)
+        # Prepare peers for round-robin sending
+        num_peers = len(nodes)
+        if num_peers == 0:
+            print("No peers available for sending.")
+            return
 
-            # Send the number of chunks
-            client_socket.sendall(str(num_chunks).encode())
+        chunk_block_sz = num_chunks // num_peers
+        # Create a connection for each peer and keep it open
+        threads = []
+        original_hash = compute_sha256(file)
+        chunk_data = {}
+        for i, peer in enumerate(nodes):
+            peer_ip, peer_port = peer.split(":")
+            chunk_data[peer] = [0 for j in range(num_chunks)]
+            for j in range(i * chunk_block_sz, min(num_chunks, ((i+1) * chunk_block_sz))):
+                chunk_data[peer][j] = 1
+            assigned_chunks = [(j, chunks[j]) for j in range(i * chunk_block_sz, min(num_chunks, ((i+1) * chunk_block_sz)))]
+            thread = ChunkSender(peer_ip, int(peer_port), assigned_chunks, num_chunks, file, original_hash)
+            thread.start()
+            threads.append(thread)
 
-            # Wait for receiver to be ready
-            ready_signal = client_socket.recv(1024).decode()
-            if ready_signal != "READY":
-                raise Exception("Receiver not ready")
-
-            # Send chunks
-            for i, chunk in enumerate(chunks):
-                chunk_index_bytes = i.to_bytes(4, byteorder='big')
-                chunk_size_bytes = len(chunk).to_bytes(4, byteorder='big')
-                
-                client_socket.sendall(chunk_index_bytes)
-                client_socket.sendall(chunk_size_bytes)
-                client_socket.sendall(chunk)
-                
-                print(f"Sent chunk {i} (size: {len(chunk)} bytes)")
-                
-                ack = client_socket.recv(1024).decode()
-                if ack != "ACK":
-                    print(f"Chunk {i} not acknowledged by peer: {ack}")
-                    break
-
-                self.uploaded_chunks += 1
-                self.total_uploaded_bytes += len(chunk)
-
-            # Send the original file hash
-            original_hash = compute_sha256(file)
-            client_socket.sendall(original_hash.encode())
-
-            print(f"File {file_name} sent successfully.")
-            self.uploaded_files += 1
-
-        except Exception as e:
-            print(f"An error occurred while connecting to peer: {e}")
-            print(traceback.format_exc())
-            self.failed_connections += 1
-        finally:
-            client_socket.close()
-
-    def print_statistics(self):
-        """Print network statistics"""
-        print("\n--- Network Statistics ---")
-        print(f"Uploaded chunks: {self.uploaded_chunks}")
-        print(f"Downloaded chunks: {self.downloaded_chunks}")
-        print(f"Uploaded files: {self.uploaded_files}")
-        print(f"Downloaded files: {self.downloaded_files}")
-        print(f"Total uploaded bytes: {self.total_uploaded_bytes}")
-        print(f"Total downloaded bytes: {self.total_downloaded_bytes}")
-        print(f"Successful connections: {self.successful_connections}")
-        print(f"Failed connections: {self.failed_connections}")
-        print("-------------------------\n")
+        # Wait for all threads to finish
+        for thread in threads:
+            thread.join()
+            print("All chunks sent successfully")
+        
+        print("chunk_data", chunk_data)
+        url = BASEURL + "/initialize_chunks" 
+        data = {"file_id": file,  "file_size": num_chunks, "chunk_data": chunk_data}
+        try:
+            response = requests.post(url, json=data)
+            response.raise_for_status()
+            print(f"Torrent initialized")
+            print(f"Available peers: {nodes}")
+        except requests.exceptions.RequestException as e:
+            print(f"Error registering node: {e}")
+            return
+        print(f"File {file} upload completed.")
 
     def run(self):
         """Continues allowing peer to initiate outgoing connections."""
         while True:
-            action = input("Enter action (u: upload, s: statistics, q: quit): ").lower()
-            if action == 'u':
-                target_ip = input("Enter the IP address of the peer to connect to: ")
-                target_port = int(input("Enter the port of the peer to connect to: "))
+            action = input("Do you want to upload a file to another peer? (y/n): ").lower()
+            if action == 'y':
                 file_path = input("Enter the file path to upload: ")
-                self.connect_to_peer(target_ip, target_port, file_path)
-            elif action == 's':
-                self.print_statistics()
-            elif action == 'q':
-                print("Quitting...")
-                break
+                self.upload(file_path)
             else:
-                print("Invalid action. Please try again.")
+                print("Waiting for incoming connections...")
+                time.sleep(1)  # Add a small delay to prevent busy-waiting
 
 # Ensure the program runs by adding the proper entry point below.
 if __name__ == "__main__":
