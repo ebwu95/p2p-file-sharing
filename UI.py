@@ -5,8 +5,7 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QGraphi
                              QVBoxLayout, QFileDialog, QMessageBox, QStackedWidget, QTextEdit, QLineEdit)
 from PyQt5.QtGui import QMovie, QFont, QFontDatabase
 from PyQt5.QtCore import Qt
-from node import Node
-
+from node import Node, BASEURL
 
 class ElegantButton(QPushButton):
     def __init__(self, text):
@@ -125,7 +124,7 @@ class FileSharingApp(QWidget):
     def show_network_stats(self):
         """Fetch and display network statistics from the tracker"""
         try:
-            response = requests.get("http://localhost:8080/stats")
+            response = requests.get(BASEURL + "/stats")
             if response.status_code == 200:
                 stats = response.json()
                 if not stats:
@@ -135,20 +134,15 @@ class FileSharingApp(QWidget):
                 stats_message = "\n--- Network Statistics ---\n"
                 for node, node_stats in stats.items():
                     stats_message += f"Node {node}:\n"
-                    stats_message += f"  Uploaded chunks: {node_stats['uploaded_chunks']}\n"
-                    stats_message += f"  Downloaded chunks: {node_stats['downloaded_chunks']}\n"
-                    stats_message += f"  Uploaded files: {node_stats['uploaded_files']}\n"
-                    stats_message += f"  Downloaded files: {node_stats['downloaded_files']}\n"
-                    stats_message += f"  Total uploaded bytes: {node_stats['total_uploaded_bytes']}\n"
-                    stats_message += f"  Total downloaded bytes: {node_stats['total_downloaded_bytes']}\n"
-                    stats_message += f"  Successful connections: {node_stats['successful_connections']}\n"
-                    stats_message += f"  Failed connections: {node_stats['failed_connections']}\n"
+                    for stat, value in node_stats.items():
+                        stats_message += f"  {stat.replace('_', ' ').title()}: {value}\n"
                     stats_message += "-------------------------\n"
                 QMessageBox.information(self, "Network Statistics", stats_message)
             else:
                 QMessageBox.warning(self, "Error", "Failed to fetch statistics from the tracker.")
         except Exception as e:
             QMessageBox.warning(self, "Error", f"An error occurred while fetching statistics: {str(e)}")
+            
     def init_chat_page(self):
         chat_page = QWidget()
         layout = QVBoxLayout()

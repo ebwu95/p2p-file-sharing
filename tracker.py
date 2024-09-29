@@ -19,13 +19,24 @@ def get_node_id(ip, port):
 class Tracker:
     def __init__(self):
         self.nodes = []
+        self.node_stats = {}
         self.torrents = {}
-        self.chunk_freq = {} # maps each chunk id to freq
+        self.chunk_freq = {}
         self.chunk_holders = {}
 
     def register_peer(self, node_id):
         if node_id not in self.nodes:
             self.nodes.append(node_id)
+            self.node_stats[node_id] = {
+                "uploaded_chunks": 0,
+                "downloaded_chunks": 0,
+                "uploaded_files": 0,
+                "downloaded_files": 0,
+                "total_uploaded_bytes": 0,
+                "total_downloaded_bytes": 0,
+                "successful_connections": 0,
+                "failed_connections": 0
+            }
             return True
         else:
             return False
@@ -46,6 +57,7 @@ class Tracker:
             self.torrents[file_id][node_id][chunk_id] = 1
             self.chunk_freq[file_id][chunk_id] += 1
             self.chunk_holders[file_id][chunk_id].append(node_id)
+            self.node_stats[node_id]["downloaded_chunks"] += 1
             return True
         except Exception as e:
             return False
@@ -65,13 +77,12 @@ class Tracker:
                 rarest_freq = freq
                 request_id = random.choice(self.chunk_holders[file_id][chunk_id])
                 rarest_chunk = chunk_id
+        if request_id:
+            self.node_stats[request_id]["uploaded_chunks"] += 1
         return (rarest_chunk, request_id)
     
     def get_statistics(self):
-        stats = {}
-        for node_id, node in self.nodes.items():
-            stats[node_id] = node.get_statistics()
-        return stats
+        return self.node_stats
 
 # Initialize the tracker
 tracker = Tracker()
