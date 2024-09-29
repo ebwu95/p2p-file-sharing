@@ -2,14 +2,15 @@ import sys
 import cohere
 from PyQt5.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QVBoxLayout, 
                              QFileDialog, QMessageBox, QStackedWidget, QTextEdit, QLineEdit)
-from PyQt5.QtGui import QMovie, QFont, QColor, QPalette
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QMovie, QFont, QFontDatabase
+from PyQt5.QtCore import Qt
 
 class ElegantButton(QPushButton):
     def __init__(self, text):
         super().__init__(text)
         self.setStyleSheet("""
             QPushButton {
+                font-family: 'Playfair Display';
                 font-size: 18px;
                 background-color: #6a5acd;
                 color: white;
@@ -29,18 +30,26 @@ class ElegantButton(QPushButton):
 class FileSharingApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Elegant File Sharing & Chat")
+        self.setWindowTitle("Mo2Moto")
         self.setGeometry(100, 100, 800, 700)
+        
+        # Load custom fonts
+        QFontDatabase.addApplicationFont("fonts/PlayfairDisplay-Italic-VariableFont_wght.ttf")
+        QFontDatabase.addApplicationFont("fonts/PlayfairDisplay-VariableFont_wght.ttf")
+        
         self.setStyleSheet("""
             QWidget {
-                background-color: #f0f8ff;
+                font-family: 'Playfair Display';
                 color: #333;
             }
             QLabel {
+                font-family: 'Playfair Display';
                 color: #1e90ff;
             }
         """)
 
+        self.init_background()
+        
         self.stacked_widget = QStackedWidget()
         self.init_main_page()
         self.init_chat_page()
@@ -53,14 +62,31 @@ class FileSharingApp(QWidget):
         self.cohere_api_key = "eEWivonREXwcGxJiiRfiuOroHlTei6EmSar5LEEU"
         self.co = cohere.Client(self.cohere_api_key)
 
+    def init_background(self):
+        self.background_movie = QMovie("background.gif")
+        self.background_label = QLabel(self)
+        self.background_label.setMovie(self.background_movie)
+        self.background_movie.frameChanged.connect(self.update_background)
+        self.background_movie.start()
+
+    def update_background(self):
+        self.background_label.setGeometry(self.rect())
+        self.background_label.lower()
+
     def init_main_page(self):
         main_page = QWidget()
         layout = QVBoxLayout()
 
-        header_label = QLabel("Elegant File Sharing & Chat")
-        header_label.setFont(QFont("Arial", 28, QFont.Bold))
+        header_label = QLabel("Mo2Moto")
+        header_label.setFont(QFont("Playfair Display", 32, QFont.Bold))
         header_label.setAlignment(Qt.AlignCenter)
-        header_label.setStyleSheet("color: #4169e1; margin: 20px 0;")
+        
+        # Set the text color to white and add shadow effect using text-shadow
+        header_label.setStyleSheet("""
+            color: white; 
+            margin: 20px 0;
+            text-shadow: 1px 1px 2px black;
+        """)
         layout.addWidget(header_label)
 
         self.send_file_button = ElegantButton("Send File")
@@ -73,7 +99,7 @@ class FileSharingApp(QWidget):
         self.gif_label.setFixedSize(300, 300)
         layout.addWidget(self.gif_label, alignment=Qt.AlignCenter)
 
-        self.chat_button = ElegantButton("Open Chat")
+        self.chat_button = ElegantButton("To AI Assistant")
         self.chat_button.clicked.connect(self.show_chat_page)
         layout.addWidget(self.chat_button, alignment=Qt.AlignCenter)
 
@@ -82,12 +108,13 @@ class FileSharingApp(QWidget):
 
         self.movie.start()
 
+
     def init_chat_page(self):
         chat_page = QWidget()
         layout = QVBoxLayout()
 
-        chat_header = QLabel("Intelligent Chat Assistant")
-        chat_header.setFont(QFont("Arial", 24, QFont.Bold))
+        chat_header = QLabel("AI Assistant")
+        chat_header.setFont(QFont("Playfair Display", 28, QFont.Bold))
         chat_header.setAlignment(Qt.AlignCenter)
         chat_header.setStyleSheet("color: #4169e1; margin: 20px 0;")
         layout.addWidget(chat_header)
@@ -99,6 +126,8 @@ class FileSharingApp(QWidget):
             border: 2px solid #b0c4de;
             border-radius: 10px;
             padding: 10px;
+            font-family: 'Playfair Display';
+            font-size: 14px;
         """)
         layout.addWidget(self.chat_display)
 
@@ -109,6 +138,7 @@ class FileSharingApp(QWidget):
             border: 2px solid #b0c4de;
             border-radius: 15px;
             padding: 8px 15px;
+            font-family: 'Playfair Display';
             font-size: 16px;
         """)
         self.chat_input.returnPressed.connect(self.send_message)
@@ -139,10 +169,9 @@ class FileSharingApp(QWidget):
     def send_message(self):
         message = self.chat_input.text()
         if message:
-            self.chat_display.append(f"You: {message}")
+            self.chat_display.append(f"<b>You:</b> {message}")
             self.chat_input.clear()
             
-            # Use Cohere API to generate a response
             try:
                 response = self.co.generate(
                     model='command',
@@ -154,11 +183,10 @@ class FileSharingApp(QWidget):
                     return_likelihoods='NONE'
                 )
                 ai_response = response.generations[0].text.strip()
-                self.chat_display.append(f"Assistant: {ai_response}")
+                self.chat_display.append(f"<b style='color: #4169e1;'>Assistant:</b> {ai_response}")
             except Exception as e:
-                self.chat_display.append(f"Assistant: I'm sorry, I encountered an error: {str(e)}")
+                self.chat_display.append(f"<b style='color: #ff4500;'>Assistant:</b> I'm sorry, I encountered an error: {str(e)}")
 
-            # Scroll to the bottom of the chat display
             self.chat_display.verticalScrollBar().setValue(
                 self.chat_display.verticalScrollBar().maximum()
             )
