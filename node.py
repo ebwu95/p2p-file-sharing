@@ -7,7 +7,7 @@ import requests
 from file_utils import chunk_file, reassemble_file, compute_sha256
 
 CHUNK_SIZE = 512  # Size of each chunk
-BASEURL = "http://localhost:8080"
+BASEURL = "https://intense-wildwood-32962-85dffa4c39e6.herokuapp.com"
 
 class ChunkSender(threading.Thread):
     def __init__(self, ip, port, chunks, total_chunks, file_name):
