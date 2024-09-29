@@ -10,14 +10,13 @@ CHUNK_SIZE = 512  # Size of each chunk
 BASEURL = "http://localhost:8080"
 
 class ChunkSender(threading.Thread):
-    def __init__(self, ip, port, chunks, total_chunks, file_name, original_hash):
+    def __init__(self, ip, port, chunks, total_chunks, file_name):
         super().__init__()
         self.ip = ip
         self.port = port
         self.chunks = chunks
         self.total_chunks = total_chunks
         self.file_name = file_name
-        self.original_hash = original_hash
 
     def run(self):
         """Connects to a peer and sends assigned chunks."""
@@ -57,9 +56,6 @@ class ChunkSender(threading.Thread):
                 # self.uploaded_chunks += 1
                 # self.total_uploaded_bytes += len(chunk)
 
-            # Send the original file hash
-            client_socket.sendall(self.original_hash.encode())
-
             print(f"File {self.file_name} sent successfully.")
             # self.uploaded_files += 1
         except Exception as e:
@@ -84,7 +80,6 @@ class Node:
         self.total_downloaded_bytes = 0
         self.successful_connections = 0
         self.failed_connections = 0
-
 
     def start_server(self):
         """Starts a peer server that listens for incoming connections."""
@@ -113,53 +108,67 @@ class Node:
         """Handles messages from incoming connections."""
         try:
             # Receive file name
-            file_name = conn.recv(1024).decode().strip()
-            print(f"Receiving file: {file_name}")
+            message = conn.recv(1024).decode().strip()
+            if (message.startswith("GET_CHUNK")):
+                request_type, file, chunk_id = message.split(":")
+                chunk_id = int(chunk_id)
+                chunk = self.chunks[chunk_id]
+                chunk_size_bytes = len(chunk).to_bytes(4, byteorder='big')
+                conn.sendall(chunk_size_bytes)
+                conn.sendall(chunk)
+            elif (message.startswith("QDOWNLOAD")):
+                _, file_name, total, original_hash = message.split(":")
+                print("ASKING QDOWNLOAD NOW")
+                total_chunks = int(total)
+                while (self.downloaded_chunks < total_chunks):
+                    self.download_chunk(file_name)
+                new_file = file_name + str(self.port)
+                output_path = os.path.join('received_files', new_file)
+                reassemble_file(self.chunks, output_path, original_hash)
+                print(f"File {file_name} retrieved and reassambled successfully.")
+            else:
+                file_name = message
+                print(f"Receiving file: {file_name}")
 
-            # Receive the number of chunks
-            num_chunks, total_chunks = conn.recv(1024).decode().split("/")
-            num_chunks = int(num_chunks)
-            total_chunks = int(total_chunks)
-            print(f"Expecting {num_chunks} chunks.")
+                # Receive the number of chunks
+                num_chunks, total_chunks = conn.recv(1024).decode().split("/")
+                num_chunks = int(num_chunks)
+                total_chunks = int(total_chunks)
+                print(f"Expecting {num_chunks} chunks.")
 
-            # Initialize the local bitfield
-            self.bitfield = [0] * total_chunks
-            self.chunks = [None] * total_chunks
+                # Initialize the local bitfield
+                self.bitfield = [0] * total_chunks
+                self.chunks = [None] * total_chunks
 
-            # Send acknowledgment for setup
-            conn.sendall("READY".encode())
+                # Send acknowledgment for setup
+                conn.sendall("READY".encode())
 
-            # Receive and process chunks
-            for i in range(num_chunks):
-                chunk_index_bytes = conn.recv(4)
-                chunk_index = int.from_bytes(chunk_index_bytes, byteorder='big')
-                chunk_size_bytes = conn.recv(4)
-                chunk_size = int.from_bytes(chunk_size_bytes, byteorder='big')
-                
-                chunk_data = b''
-                while len(chunk_data) < chunk_size:
-                    packet = conn.recv(min(4096, chunk_size - len(chunk_data)))
-                    if not packet:
-                        raise Exception("Connection closed while receiving chunk data")
-                    chunk_data += packet
+                # Receive and process chunks
+                for i in range(num_chunks):
+                    chunk_index_bytes = conn.recv(4)
+                    chunk_index = int.from_bytes(chunk_index_bytes, byteorder='big')
+                    chunk_size_bytes = conn.recv(4)
+                    chunk_size = int.from_bytes(chunk_size_bytes, byteorder='big')
+                    
+                    chunk_data = b''
+                    while len(chunk_data) < chunk_size:
+                        packet = conn.recv(min(4096, chunk_size - len(chunk_data)))
+                        if not packet:
+                            raise Exception("Connection closed while receiving chunk data")
+                        chunk_data += packet
 
-                print(f"Received chunk {chunk_index} (size: {chunk_size} bytes)")
-                self.chunks[chunk_index] = chunk_data
-                self.bitfield[chunk_index] = 1
-                conn.sendall("ACK".encode())
+                    print(f"Received chunk {chunk_index} (size: {chunk_size} bytes)")
+                    print(f"Adding chunk {chunk_index} with value {chunk_data} to chunks")
+                    self.chunks[chunk_index] = chunk_data
+                    self.bitfield[chunk_index] = 1
+                    conn.sendall("ACK".encode())
 
-                # Update statistics
-                # self.downloaded_chunks += 1
-                # self.total_downloaded_bytes += chunk_size
+                    # Update statistics
+                    self.downloaded_chunks += 1
+                    self.total_downloaded_bytes += chunk_size
 
-            # Receive the original hash to verify integrity
-            original_hash = conn.recv(64).decode()
-
-            # Reassemble file
-            output_path = os.path.join('received_files', file_name)
-            print(f"File {file_name} received and reassembled successfully.")
-
-            self.downloaded_files += 1
+                # Receive the original hash to verify integrity
+                self.downloaded_files += 1
 
         except Exception as e:
             print(f"Error while handling incoming client: {e}")
@@ -178,7 +187,7 @@ class Node:
             response = requests.get(url, json=data)
             data = response.json()
             nodes = data["available_peers"]
-            
+             
             response.raise_for_status()
             print(f"Node registered successfully with port {self.port}")
             print(f"Available peers: {nodes}")
@@ -202,7 +211,6 @@ class Node:
         chunk_block_sz = num_chunks // num_peers
         # Create a connection for each peer and keep it open
         threads = []
-        original_hash = compute_sha256(file)
         chunk_data = {}
         for i, peer in enumerate(nodes):
             peer_ip, peer_port = peer.split(":")
@@ -210,14 +218,14 @@ class Node:
             for j in range(i * chunk_block_sz, min(num_chunks, ((i+1) * chunk_block_sz))):
                 chunk_data[peer][j] = 1
             assigned_chunks = [(j, chunks[j]) for j in range(i * chunk_block_sz, min(num_chunks, ((i+1) * chunk_block_sz)))]
-            thread = ChunkSender(peer_ip, int(peer_port), assigned_chunks, num_chunks, file, original_hash)
+            thread = ChunkSender(peer_ip, int(peer_port), assigned_chunks, num_chunks, file)
             thread.start()
             threads.append(thread)
 
         # Wait for all threads to finish
         for thread in threads:
             thread.join()
-            print("All chunks sent successfully")
+        print("all chunks sent successfully")
         
         print("chunk_data", chunk_data)
         url = BASEURL + "/initialize_chunks" 
@@ -230,6 +238,21 @@ class Node:
         except requests.exceptions.RequestException as e:
             print(f"Error registering node: {e}")
             return
+        
+        original_hash = compute_sha256(file)
+
+        for node in nodes:
+            ip, port = node.split(":")
+            try:
+                client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                client_socket.connect((ip, int(port)))
+                message = "QDOWNLOAD:" + file + ":" + str(num_chunks) + ":" + original_hash
+                client_socket.sendall(message.encode()) # let the nodes know everybody is ready
+            except Exception as e:
+                print("ERROR SENDING MESSAGE: ", e)
+                return 
+            finally:
+                client_socket.close()
         print(f"File {file} upload completed.")
 
     def run(self):
@@ -242,6 +265,62 @@ class Node:
             else:
                 print("Waiting for incoming connections...")
                 time.sleep(1)  # Add a small delay to prevent busy-waiting
+
+    def download_chunk(self, file_name):
+        # Request chunk information from tracker
+        tracker_url = BASEURL+'/request_chunk'
+
+        data = {
+            "file_id": file_name,
+            "port": self.port
+        }
+
+        try:
+            # Request data for that chunk from the tracker
+            response = requests.get(tracker_url, json=data)
+            print(f"Tracker response for chunk : {response.json()}")
+            data = response.json()
+
+            chunk_id = data["chunk_id"]
+            target_node = data["node"]
+
+            # Extract IP and port from target_node
+            target_ip, target_port = target_node.split(':')
+            target_port = int(target_port)
+
+            # Establish connection with the target node
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((target_ip, target_port))
+
+                # Send request for the specific chunk
+                request = f"GET_CHUNK:{file_name}:{chunk_id}"
+                s.sendall(request.encode())
+
+                # Receive chunk size
+                chunk_size_bytes = s.recv(4)
+                chunk_size = int.from_bytes(chunk_size_bytes, byteorder='big')
+
+                # Receive chunk data
+                chunk_data = b''
+                while len(chunk_data) < chunk_size:
+                    packet = s.recv(min(4096, chunk_size - len(chunk_data)))
+                    if not packet:
+                        raise Exception("Connection closed while receiving chunk data")
+                    chunk_data += packet
+                self.chunks[chunk_id] = chunk_data
+                # idk if we need to return it, maybe just append to self_chunklist, then send updated bitmap to tracker.
+                # HOw do we assemble at end? maybe send an arbitrary command to the downloader to check if they have a full bitmap/ some other condition?
+            tracker_url = BASEURL+'/update_chunk'
+            data = {
+                "file_id": file_name,
+                "port": self.port,
+                "chunk_id": chunk_id
+            }
+            response = requests.post(tracker_url, json=data)
+            print(f"Successfully downloaded chunk {chunk_id} (size: {len(chunk_data)} bytes)")
+            self.downloaded_chunks += 1
+        except Exception as e:
+            print("ERROR: ", e)
 
 # Ensure the program runs by adding the proper entry point below.
 if __name__ == "__main__":
