@@ -15,6 +15,14 @@ class Node:
         self.server_thread = threading.Thread(target=self.start_server)
         self.server_thread.daemon = True  # Daemonize thread to end with main program
         self.server_thread.start()
+        self.uploaded_chunks = 0
+        self.downloaded_chunks = 0
+        self.uploaded_files = 0
+        self.downloaded_files = 0
+        self.total_uploaded_bytes = 0
+        self.total_downloaded_bytes = 0
+        self.successful_connections = 0
+        self.failed_connections = 0
 
     def start_server(self):
         """Starts a peer server that listens for incoming connections."""
@@ -24,9 +32,14 @@ class Node:
         print(f"Peer listening on port {self.port}...")
 
         while True:
-            conn, addr = server_socket.accept()  # Accept new connections
-            print(f"Connected by {addr}")
-            threading.Thread(target=self.handle_incoming_client, args=(conn,)).start()
+            try:
+                conn, addr = server_socket.accept()  # Accept new connections
+                print(f"Connected by {addr}")
+                self.successful_connections += 1
+                threading.Thread(target=self.handle_incoming_client, args=(conn,)).start()
+            except Exception:
+                self.failed_connections += 1
+                print(f"Failed to establish connection")
 
     def handle_incoming_client(self, conn):
         """Handles messages from incoming connections."""
@@ -65,6 +78,10 @@ class Node:
                 self.bitfield[chunk_index] = 1
                 conn.sendall("ACK".encode())
 
+                # Update statistics
+                self.downloaded_chunks += 1
+                self.total_downloaded_bytes += chunk_size
+
             # Receive the original hash to verify integrity
             original_hash = conn.recv(64).decode()
 
@@ -73,9 +90,12 @@ class Node:
             reassemble_file(self.chunks, output_path, original_hash)
             print(f"File {file_name} received and reassembled successfully.")
 
+            self.downloaded_files += 1
+
         except Exception as e:
             print(f"Error while handling incoming client: {e}")
             print(traceback.format_exc())
+            self.failed_connections += 1
         finally:
             conn.close()
 
@@ -85,6 +105,7 @@ class Node:
         try:
             client_socket.connect((ip, port))
             print(f"Connected to peer {ip}:{port}")
+            self.successful_connections += 1
 
             # Send the file name
             file_name = os.path.basename(file)
@@ -117,32 +138,54 @@ class Node:
                 ack = client_socket.recv(1024).decode()
                 if ack != "ACK":
                     print(f"Chunk {i} not acknowledged by peer: {ack}")
-                    breaks
+                    break
+
+                self.uploaded_chunks += 1
+                self.total_uploaded_bytes += len(chunk)
 
             # Send the original file hash
             original_hash = compute_sha256(file)
             client_socket.sendall(original_hash.encode())
 
             print(f"File {file_name} sent successfully.")
+            self.uploaded_files += 1
 
         except Exception as e:
             print(f"An error occurred while connecting to peer: {e}")
             print(traceback.format_exc())
+            self.failed_connections += 1
         finally:
             client_socket.close()
+
+    def print_statistics(self):
+        """Print network statistics"""
+        print("\n--- Network Statistics ---")
+        print(f"Uploaded chunks: {self.uploaded_chunks}")
+        print(f"Downloaded chunks: {self.downloaded_chunks}")
+        print(f"Uploaded files: {self.uploaded_files}")
+        print(f"Downloaded files: {self.downloaded_files}")
+        print(f"Total uploaded bytes: {self.total_uploaded_bytes}")
+        print(f"Total downloaded bytes: {self.total_downloaded_bytes}")
+        print(f"Successful connections: {self.successful_connections}")
+        print(f"Failed connections: {self.failed_connections}")
+        print("-------------------------\n")
 
     def run(self):
         """Continues allowing peer to initiate outgoing connections."""
         while True:
-            action = input("Do you want to upload a file to another peer? (y/n): ").lower()
-            if action == 'y':
+            action = input("Enter action (u: upload, s: statistics, q: quit): ").lower()
+            if action == 'u':
                 target_ip = input("Enter the IP address of the peer to connect to: ")
                 target_port = int(input("Enter the port of the peer to connect to: "))
                 file_path = input("Enter the file path to upload: ")
                 self.connect_to_peer(target_ip, target_port, file_path)
+            elif action == 's':
+                self.print_statistics()
+            elif action == 'q':
+                print("Quitting...")
+                break
             else:
-                print("Waiting for incoming connections...")
-                time.sleep(1)  # Add a small delay to prevent busy-waiting
+                print("Invalid action. Please try again.")
 
 # Ensure the program runs by adding the proper entry point below.
 if __name__ == "__main__":
