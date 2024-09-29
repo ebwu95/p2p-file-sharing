@@ -23,6 +23,7 @@ class Tracker:
         self.torrents = {}
         self.chunk_freq = {}
         self.chunk_holders = {}
+        self.sender = {}
 
     def register_peer(self, node_id):
         if node_id not in self.nodes:
@@ -41,7 +42,8 @@ class Tracker:
         else:
             return False
 
-    def initialize_chunks(self, file_id, file_size, chunk_data):
+    def initialize_chunks(self, file_id, file_size, chunk_data, ip, port):
+        self.sender[file_id] = get_node_id(ip, port)
         self.torrents[file_id] = chunk_data
         self.chunk_freq[file_id] = [0 for i in range(file_size)]
         self.chunk_holders[file_id] = [[] for i in range(file_size)] 
@@ -75,10 +77,14 @@ class Tracker:
         for chunk_id, freq in enumerate(self.chunk_freq[file_id]):
             if (freq < rarest_freq and self.torrents[file_id][node_id][chunk_id] == 0):
                 rarest_freq = freq
-                request_id = random.choice(self.chunk_holders[file_id][chunk_id])
                 rarest_chunk = chunk_id
-        if request_id:
-            self.node_stats[request_id]["uploaded_chunks"] += 1
+                try:
+                    request_id = random.choice(self.chunk_holders[file_id][chunk_id])
+                except Exception as e:
+                    print("Note: exception: ", e)
+                    continue 
+        if (request_id == "" and rarest_chunk == -1):
+            request_id = self.sender[file_id]
         return (rarest_chunk, request_id)
     
     def get_statistics(self):
@@ -109,10 +115,12 @@ def peers():
 @app.route('/initialize_chunks', methods=['POST'])
 def initialize_chunks():
     data = request.json
+    ip = request.remote_addr
+    port = data.get('port')
     file_id = data.get('file_id')
     file_size = data.get('file_size')
     chunk_data = data.get('chunk_data')
-    tracker.initialize_chunks(file_id, file_size, chunk_data)
+    tracker.initialize_chunks(file_id, file_size, chunk_data, ip, port)
     return jsonify({"message": "Initialized peer chunk data", "torrent_info": tracker.get_torrent_info(file_id)}), 200
     
 @app.route('/update_chunk', methods=['POST'])
