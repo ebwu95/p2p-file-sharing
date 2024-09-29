@@ -3,6 +3,7 @@ import threading
 import os
 import traceback
 import time
+import hashlib
 from file_utils import chunk_file, reassemble_file, compute_sha256
 
 CHUNK_SIZE = 512  # Size of each chunk
@@ -12,6 +13,7 @@ class Node:
         self.port = port
         self.chunks = []  # To hold the actual chunks
         self.bitfield = []  # To track available chunks
+        self.chunk_hashes = []
         self.server_thread = threading.Thread(target=self.start_server)
         self.server_thread.daemon = True  # Daemonize thread to end with main program
         self.server_thread.start()
@@ -41,6 +43,11 @@ class Node:
                 self.failed_connections += 1
                 print(f"Failed to establish connection")
 
+    def verify_chunk(self, chunk_index, chunk_data):
+        """Verify the integrity of a chunk using its hash."""
+        chunk_hash = hashlib.sha256(chunk_data).hexdigest()
+        return chunk_hash == self.chunk_hashes[chunk_index]
+
     def handle_incoming_client(self, conn):
         """Handles messages from incoming connections."""
         try:
@@ -48,8 +55,9 @@ class Node:
             file_name = conn.recv(1024).decode().strip()
             print(f"Receiving file: {file_name}")
 
-            # Receive the number of chunks
+            # Receive the number of chunks and chunk hashes
             num_chunks = int(conn.recv(1024).decode())
+            self.chunk_hashes = [conn.recv(64).decode() for _ in range(num_chunks)]
             print(f"Expecting {num_chunks} chunks.")
 
             # Initialize the local bitfield
@@ -60,6 +68,7 @@ class Node:
             conn.sendall("READY".encode())
 
             # Receive and process chunks
+            corrupted_chunks = []
             for i in range(num_chunks):
                 chunk_index_bytes = conn.recv(4)
                 chunk_index = int.from_bytes(chunk_index_bytes, byteorder='big')
@@ -74,13 +83,38 @@ class Node:
                     chunk_data += packet
 
                 print(f"Received chunk {chunk_index} (size: {chunk_size} bytes)")
-                self.chunks[chunk_index] = chunk_data
-                self.bitfield[chunk_index] = 1
-                conn.sendall("ACK".encode())
+                
+                if self.verify_chunk(chunk_index, chunk_data):
+                    self.chunks[chunk_index] = chunk_data
+                    self.bitfield[chunk_index] = 1
+                    conn.sendall("ACK".encode())
+                    self.downloaded_chunks += 1
+                    self.total_downloaded_bytes += chunk_size
+                else:
+                    print(f"Chunk {chunk_index} is corrupted")
+                    corrupted_chunks.append(chunk_index)
+                    conn.sendall("NACK".encode())
 
-                # Update statistics
-                self.downloaded_chunks += 1
-                self.total_downloaded_bytes += chunk_size
+            for chunk_index in corrupted_chunks:
+                conn.sendall(f"RESEND {chunk_index}".encode())
+                chunk_size_bytes = conn.recv(4)
+                chunk_size = int.from_bytes(chunk_size_bytes, byteorder='big')
+                
+                chunk_data = b''
+                while len(chunk_data) < chunk_size:
+                    packet = conn.recv(min(4096, chunk_size - len(chunk_data)))
+                    if not packet:
+                        raise Exception("Connection closed while receiving chunk data")
+                    chunk_data += packet
+
+                if self.verify_chunk(chunk_index, chunk_data):
+                    self.chunks[chunk_index] = chunk_data
+                    self.bitfield[chunk_index] = 1
+                    conn.sendall("ACK".encode())
+                    self.downloaded_chunks += 1
+                    self.total_downloaded_bytes += chunk_size
+                else:
+                    print(f"Chunk {chunk_index} is still corrupted after retransmission")
 
             # Receive the original hash to verify integrity
             original_hash = conn.recv(64).decode()
@@ -119,6 +153,11 @@ class Node:
             # Send the number of chunks
             client_socket.sendall(str(num_chunks).encode())
 
+            # Get chunk hashes by calc then sending
+            chunk_hashes = [hashlib.sha256(chunk).hexdigest() for chunk in chunks]
+            for chunk_hash in chunk_hashes:
+                client_socket.sendall(chunk_hash.encode())
+
             # Wait for receiver to be ready
             ready_signal = client_socket.recv(1024).decode()
             if ready_signal != "READY":
@@ -138,7 +177,21 @@ class Node:
                 ack = client_socket.recv(1024).decode()
                 if ack != "ACK":
                     print(f"Chunk {i} not acknowledged by peer: {ack}")
-                    break
+                    # Waiting for resend req (potentially, not guarenteed)
+                    resend_request = client_socket.recv(1024).decode()
+                    if resend_request.startswith("RESEND"):
+                        chunk_index = int(resend_request.split()[1])
+                        chunk = chunks[chunk_index]
+                        chunk_size_bytes = len(chunk).to_bytes(4, byteorder='big')
+                        client_socket.sendall(chunk_size_bytes)
+                        client_socket.sendall(chunk)
+                        print(f"Resent chunk {chunk_index}")
+                        ack = client_socket.recv(1024).decode()
+                        if ack != "ACK":
+                            print(f"Chunk {chunk_index} still not acknowledged after resend")
+                    else:
+                        print(f"Unexpected response: {resend_request}")
+                        break
 
                 self.uploaded_chunks += 1
                 self.total_uploaded_bytes += len(chunk)
@@ -170,10 +223,20 @@ class Node:
         print(f"Failed connections: {self.failed_connections}")
         print("-------------------------\n")
 
+    def corrupt_chunk(self, chunk_index):
+        """The power of corruption. Press C to corrupt a chunk of the terraria world."""
+        if 0 <= chunk_index < len(self.chunks) and self.chunks[chunk_index] is not None:
+            corrupted_data = bytearray(self.chunks[chunk_index])
+            corrupted_data[0] = (corrupted_data[0] + 1) % 256
+            self.chunks[chunk_index] = bytes(corrupted_data)
+            print(f"Chunk {chunk_index} has been corrupted.")
+        else:
+            print(f"Invalid chunk index {chunk_index} or chunk is None.")
+
     def run(self):
         """Continues allowing peer to initiate outgoing connections."""
         while True:
-            action = input("Enter action (u: upload, s: statistics, q: quit): ").lower()
+            action = input("Enter action (u: upload, s: statistics, c: use the power of corruption, q: quit): ").lower()
             if action == 'u':
                 target_ip = input("Enter the IP address of the peer to connect to: ")
                 target_port = int(input("Enter the port of the peer to connect to: "))
@@ -181,6 +244,13 @@ class Node:
                 self.connect_to_peer(target_ip, target_port, file_path)
             elif action == 's':
                 self.print_statistics()
+            elif action == 'c':
+                target_ip = input("Enter the IP address of the peer to connect to: ")
+                target_port = int(input("Enter the port of the peer to connect to: "))
+                file_path = input("Enter the file path to upload: ")
+                self.connect_to_peer(target_ip, target_port, file_path)
+                chunk_index = int(input("Choose the unlucky chunk to be corrupted: "))
+                self.corrupt_chunk(chunk_index)
             elif action == 'q':
                 print("Quitting...")
                 break
