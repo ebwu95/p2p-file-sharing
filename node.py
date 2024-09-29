@@ -232,6 +232,19 @@ class Node:
             return
         print(f"File {file} upload completed.")
 
+    def get_statistics(self):
+        """Return network statistics as a dictionary"""
+        return {
+            "uploaded_chunks": self.uploaded_chunks,
+            "downloaded_chunks": self.downloaded_chunks,
+            "uploaded_files": self.uploaded_files,
+            "downloaded_files": self.downloaded_files,
+            "total_uploaded_bytes": self.total_uploaded_bytes,
+            "total_downloaded_bytes": self.total_downloaded_bytes,
+            "successful_connections": self.successful_connections,
+            "failed_connections": self.failed_connections
+        }
+        
     def run(self):
         """Continues allowing peer to initiate outgoing connections."""
         while True:

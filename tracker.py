@@ -65,6 +65,12 @@ class Tracker:
                 request_id = random.choice(self.chunk_holders[file_id][chunk_id])
                 rarest_chunk = chunk_id
         return (rarest_chunk, request_id)
+    
+    def get_statistics(self):
+        stats = {}
+        for node_id, node in self.nodes.items():
+            stats[node_id] = node.get_statistics()
+        return stats
 
 # Initialize the tracker
 tracker = Tracker()
@@ -117,6 +123,10 @@ def request_chunk():
     port = data.get('port')
     chunk_id, request_id = tracker.request_chunk(get_node_id(ip, port), file_id)
     return jsonify({"chunk_id": chunk_id, "node": request_id}), 200
+
+@app.route('/stats', methods=['GET'])
+def stats():
+    return jsonify(tracker.get_statistics()), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
