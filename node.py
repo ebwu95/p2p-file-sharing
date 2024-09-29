@@ -266,6 +266,11 @@ class Node:
                 print("Waiting for incoming connections...")
                 time.sleep(1)  # Add a small delay to prevent busy-waiting
 
+    def runViaButton(self, file_path):
+        """Continues allowing peer to initiate outgoing connections."""
+        self.upload(file_path)
+        time.sleep(1)  # Add a small delay to prevent busy-waiting
+
     def download_chunk(self, file_name):
         # Request chunk information from tracker
         tracker_url = BASEURL+'/request_chunk'
