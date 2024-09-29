@@ -102,9 +102,9 @@ class FileSharingApp(QWidget):
         self.gif_label.setMovie(self.movie)
         self.gif_label.setFixedSize(300, 300)
         layout.addWidget(self.gif_label, alignment=Qt.AlignCenter)
-
+        
         button_layout = QHBoxLayout()
-        self.chat_button = ElegantButton("To AI Assistant")
+        self.chat_button = ElegantButton("Ask Moto Moto")
         self.chat_button.clicked.connect(self.show_chat_page)
         layout.addWidget(self.chat_button, alignment=Qt.AlignCenter)
 
@@ -150,7 +150,7 @@ class FileSharingApp(QWidget):
         chat_page = QWidget()
         layout = QVBoxLayout()
 
-        chat_header = QLabel("AI Assistant")
+        chat_header = QLabel("Moto Moto")
         chat_header.setFont(QFont("Playfair Display", 28, QFont.Bold))
         chat_header.setAlignment(Qt.AlignCenter)
         chat_header.setStyleSheet("color: #4169e1; margin: 20px 0;")
@@ -210,19 +210,35 @@ class FileSharingApp(QWidget):
             self.chat_input.clear()
             
             try:
+                prompt = (
+                    "You are an AI assistant for a peer-to-peer file-sharing application called Mo2Moto. "
+                    "Your name is Moto Moto. You are a hippopotamus who helps users. "
+                    "You speak in an informal way, but not being impolite. "
+                    "Your purpose is to help users with tasks related to file sharing, such as uploading, downloading, "
+                    "and managing files. You can also provide general assistance and answer questions about the application.\n\n"
+                    "The application works as follows:\n"
+                    "1. Users can upload files to share with others.\n"
+                    "2. Users can download files shared by others.\n"
+                    "3. The application uses a peer-to-peer network for file sharing, managed by the `Node` class in `node.py`.\n"
+                    "4. The `Node` class handles incoming connections, uploads files in chunks, and manages peer connections.\n"
+                    "5. The `Tracker` class in `tracker.py` keeps track of registered peers and manages chunk information.\n"
+                    "6. The `file_utils.py` file contains utility functions for chunking and reassembling files.\n\n"
+                    f"Human: {message}\nMoto Moto:"
+                )
+                
                 response = self.co.generate(
                     model='command',
-                    prompt=f'Human: {message}\nAI:',
+                    prompt=prompt,
                     max_tokens=150,
                     temperature=0.9,
                     k=0,
-                    stop_sequences=["Human:", "AI:"],
+                    stop_sequences=["Human:", "Moto Moto:"],
                     return_likelihoods='NONE'
                 )
                 ai_response = response.generations[0].text.strip()
-                self.chat_display.append(f"<b style='color: #4169e1;'>Assistant:</b> {ai_response}")
+                self.chat_display.append(f"<b style='color: #4169e1;'>Moto Moto:</b> {ai_response}")
             except Exception as e:
-                self.chat_display.append(f"<b style='color: #ff4500;'>Assistant:</b> I'm sorry, I encountered an error: {str(e)}")
+                self.chat_display.append(f"<b style='color: #ff4500;'>Moto Moto:</b> I'm sorry, looks like something went wrong! Here's some more information I got: {str(e)}")
 
             self.chat_display.verticalScrollBar().setValue(
                 self.chat_display.verticalScrollBar().maximum()

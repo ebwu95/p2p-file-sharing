@@ -32,11 +32,12 @@ class Tracker:
 
     def initialize_chunks(self, file_id, file_size, chunk_data):
         self.torrents[file_id] = chunk_data
-        self.chunk_freq[file_id] = [0] * file_size
-        self.chunk_holders[file_id] = [[]] * file_size
+        self.chunk_freq[file_id] = [0 for i in range(file_size)]
+        self.chunk_holders[file_id] = [[] for i in range(file_size)] 
         for node_id in chunk_data.keys():
             for i, chunk in enumerate(chunk_data[node_id]):
-                self.chunk_holders[file_id][i].append(node_id)
+                if (chunk == 1):
+                    self.chunk_holders[file_id][i].append(node_id)
                 self.chunk_freq[file_id][i] += chunk
         self.torrents[file_id] = chunk_data
 
@@ -114,6 +115,13 @@ def update_chunk():
         return jsonify({"message": "Updated peer chunk data", "chunk_data": tracker.get_torrent_info(file_id)}), 200
     else:
         return jsonify({"error": "You need to call /initialize_chunks"}), 400
+
+@app.route('/torrent_data', methods=['GET'])
+def torrent_data():
+    data = request.json 
+    ip = request.remote_addr
+    file_id = data.get('file_id')
+    return jsonify({"chunk_data": tracker.get_torrent_info(file_id)}), 200
 
 @app.route('/request_chunk', methods=['GET'])
 def request_chunk():
