@@ -1,7 +1,7 @@
 import sys
 import cohere
-from PyQt5.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QVBoxLayout, 
-                             QFileDialog, QMessageBox, QStackedWidget, QTextEdit, QLineEdit)
+from PyQt5.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QGraphicsDropShadowEffect, 
+                             QVBoxLayout, QFileDialog, QMessageBox, QStackedWidget, QTextEdit, QLineEdit)
 from PyQt5.QtGui import QMovie, QFont, QFontDatabase
 from PyQt5.QtCore import Qt
 
@@ -81,12 +81,15 @@ class FileSharingApp(QWidget):
         header_label.setFont(QFont("Playfair Display", 32, QFont.Bold))
         header_label.setAlignment(Qt.AlignCenter)
         
-        # Set the text color to white and add shadow effect using text-shadow
-        header_label.setStyleSheet("""
-            color: white; 
-            margin: 20px 0;
-            text-shadow: 1px 1px 2px black;
-        """)
+        header_label.setStyleSheet("color: white; margin: 20px 0;")
+
+        shadow_effect = QGraphicsDropShadowEffect()
+        shadow_effect.setBlurRadius(5)
+        shadow_effect.setXOffset(1)
+        shadow_effect.setYOffset(1)
+        shadow_effect.setColor(Qt.black)
+        header_label.setGraphicsEffect(shadow_effect)
+        
         layout.addWidget(header_label)
 
         self.send_file_button = ElegantButton("Send File")
