@@ -1,6 +1,7 @@
 import sys
 import cohere
-from PyQt5.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QGraphicsDropShadowEffect, 
+import requests
+from PyQt5.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QGraphicsDropShadowEffect, QHBoxLayout,
                              QVBoxLayout, QFileDialog, QMessageBox, QStackedWidget, QTextEdit, QLineEdit)
 from PyQt5.QtGui import QMovie, QFont, QFontDatabase
 from PyQt5.QtCore import Qt
@@ -102,15 +103,48 @@ class FileSharingApp(QWidget):
         self.gif_label.setFixedSize(300, 300)
         layout.addWidget(self.gif_label, alignment=Qt.AlignCenter)
 
+        button_layout = QHBoxLayout()
         self.chat_button = ElegantButton("To AI Assistant")
         self.chat_button.clicked.connect(self.show_chat_page)
         layout.addWidget(self.chat_button, alignment=Qt.AlignCenter)
+
+        self.stats_button = ElegantButton("Show Network Stats")
+        self.stats_button.clicked.connect(self.show_network_stats)
+        button_layout.addWidget(self.stats_button, alignment=Qt.AlignCenter)
+        layout.addLayout(button_layout)
 
         main_page.setLayout(layout)
         self.stacked_widget.addWidget(main_page)
 
         self.movie.start()
 
+    def show_network_stats(self):
+        """Fetch and display network statistics from the tracker"""
+        try:
+            response = requests.get("http://localhost:8080/stats")
+            if response.status_code == 200:
+                stats = response.json()
+                if not stats:
+                    QMessageBox.information(self, "Network Statistics", "No nodes connected. No information to show.")
+                    return
+
+                stats_message = "\n--- Network Statistics ---\n"
+                for node, node_stats in stats.items():
+                    stats_message += f"Node {node}:\n"
+                    stats_message += f"  Uploaded chunks: {node_stats['uploaded_chunks']}\n"
+                    stats_message += f"  Downloaded chunks: {node_stats['downloaded_chunks']}\n"
+                    stats_message += f"  Uploaded files: {node_stats['uploaded_files']}\n"
+                    stats_message += f"  Downloaded files: {node_stats['downloaded_files']}\n"
+                    stats_message += f"  Total uploaded bytes: {node_stats['total_uploaded_bytes']}\n"
+                    stats_message += f"  Total downloaded bytes: {node_stats['total_downloaded_bytes']}\n"
+                    stats_message += f"  Successful connections: {node_stats['successful_connections']}\n"
+                    stats_message += f"  Failed connections: {node_stats['failed_connections']}\n"
+                    stats_message += "-------------------------\n"
+                QMessageBox.information(self, "Network Statistics", stats_message)
+            else:
+                QMessageBox.warning(self, "Error", "Failed to fetch statistics from the tracker.")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"An error occurred while fetching statistics: {str(e)}")
 
     def init_chat_page(self):
         chat_page = QWidget()
